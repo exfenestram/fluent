@@ -27,31 +27,65 @@ SOFTWARE.
 % fluent_call/5 calls a single callable goal with parameter substitution
 
 fluent_call(Callable, TemplIn, TemplOut, In, Out) :-
-	subst_templ(Callable, TemplIn, In, NextCall),
-	subst_templ(NextCall, TemplOut, Out, Actual),
+	% If there's no matching In parameter, Pass In to Out
+	(subst_templ(Callable, TemplIn, In, NextCall) ->
+	 true
+	;
+	 Out = In,
+	 NextCall = Callable),
+	% Same for out. If it doesn't occur, map it to In, for the next stage
+	(subst_templ(NextCall, TemplOut, Out, Actual) ->
+	 true
+	;
+	 Out = In,
+	 Actual = NextCall),
+	
 	call(Actual).
 
 % subst_templ/4 substitutes instances of Template with Actual. Most useful for variable
 % substitution
 subst_templ(Callable, Template, Actual, Result) :-
 	Callable =.. CallList,
-	maplist(subst_var(Template, Actual), CallList, ResList),
-	Result =.. ResList.
+	foldl(subst_var(Template, Actual), CallList, ResList, false, Res),
+	Result =.. ResList,
+	call(Res).
 
-% subst_var/4 actually substitutes a variable if it matches the Template
-subst_var(Template, Actual, In, Out) :-
-	(Template == In ->
-	 Out = Actual
+% subst_var/5 actually substitutes a variable if it matches the Template.
+% It is a fold predicate and passes out true if it matches
+subst_var(Template, Actual, In, Out, InTruth, OutTruth) :-
+	% If it's a compound, them substitute its components
+	(compound(In) ->
+	 (subst_templ(In, Template, Actual, Out) ->
+	  OutTruth = true
+	 ;
+	  OutTruth = InTruth)
 	;
-	 Out = In).
+	 (Template == In ->
+	  Out = Actual,
+	  OutTruth = true
+	 ;
+	  Out = In,
+	  OutTruth = InTruth)).
+	
 
-
-% fluent/5 executes the fluent. Non-determinism is respected
+% fluent/6 executes the fluent. Non-determinism is respected
+% The top level choice is passed down for ancestral cuts
 % fluent(FluentList, InTemplate, OutTemplate, In, Out)
 % an empty fluent simply unifies In and Out
-fluent([], _TemplIn, _TemplOut, In, In).
+fluent([], _TemplIn, _TemplOut, In, In, _Choice).
 
-% Note that fluent/5 is does not last call optimize
-fluent([H | T], TemplIn, TemplOut, In, Out) :-
+% Handle Cut
+fluent([! | T], TemplIn, TemplOut, In, Out, Choice) :-
+	prolog_cut_to(Choice),
+	prolog_current_choice(NextChoice), 
+	fluent(T, TemplIn, TemplOut, In, Out, NextChoice).
+
+% Note that fluent/6 is does not last call optimize
+fluent([H | T], TemplIn, TemplOut, In, Out, Choice) :-
 	fluent_call(H, TemplIn, TemplOut, In, Tmp),
-	fluent(T, TemplIn, TemplOut, Tmp, Out).
+	fluent(T, TemplIn, TemplOut, Tmp, Out, Choice).
+
+% fluent/5 just set the choicepoint and calls fluent/6
+fluent(CallableList, TemplIn, TemplOut, In, Out) :-
+	prolog_current_choice(Choice),
+	fluent(CallableList, TemplIn, TemplOut, In, Out, Choice).
