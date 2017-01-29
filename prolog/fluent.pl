@@ -28,13 +28,15 @@ SOFTWARE.
 
 fluent_call(Callable, TemplIn, TemplOut, In, Out) :-
 	% If there's no matching In parameter, Pass In to Out
-	(subst_templ(Callable, TemplIn, In, NextCall) ->
+	subst_templ(Callable, TemplIn, In, NextCall, Result),
+	(call(Result) ->
 	 true
 	;
 	 Out = In,
 	 NextCall = Callable),
 	% Same for out. If it doesn't occur, map it to In, for the next stage
-	(subst_templ(NextCall, TemplOut, Out, Actual) ->
+	subst_templ(NextCall, TemplOut, Out, Actual, NextResult),
+	(call(NextResult) ->
 	 true
 	;
 	 Out = In,
@@ -42,20 +44,20 @@ fluent_call(Callable, TemplIn, TemplOut, In, Out) :-
 	
 	call(Actual).
 
-% subst_templ/4 substitutes instances of Template with Actual. Most useful for variable
+% subst_templ/5 substitutes instances of Template with Actual. Most useful for variable
 % substitution
-subst_templ(Callable, Template, Actual, Result) :-
+subst_templ(Callable, Template, Actual, Result, Res) :-
 	Callable =.. CallList,
 	foldl(subst_var(Template, Actual), CallList, ResList, false, Res),
-	Result =.. ResList,
-	call(Res).
+	Result =.. ResList.
 
-% subst_var/5 actually substitutes a variable if it matches the Template.
+% subst_var/6 actually substitutes a variable if it matches the Template.
 % It is a fold predicate and passes out true if it matches
 subst_var(Template, Actual, In, Out, InTruth, OutTruth) :-
 	% If it's a compound, them substitute its components
 	(compound(In) ->
-	 (subst_templ(In, Template, Actual, Out) ->
+	 subst_templ(In, Template, Actual, Out, Result), 
+	 (call(Result) ->
 	  OutTruth = true
 	 ;
 	  OutTruth = InTruth)
